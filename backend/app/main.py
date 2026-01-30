@@ -4,7 +4,7 @@ import json
 from typing import List, Optional
 from pathlib import Path
 
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
@@ -17,6 +17,24 @@ from app.models import (
 from app.inference import AdaptiveRouterInference
 from app.preprocessing import ImagePreprocessor
 
+# Patch Starlette's form parser limits for large batches (5000+ images)
+import starlette.formparsers
+
+# Store original class
+_OriginalMultiPartParser = starlette.formparsers.MultiPartParser
+
+class CustomMultiPartParser(_OriginalMultiPartParser):
+    def __init__(self, headers, stream):
+        super().__init__(
+            headers,
+            stream,
+            max_files=5000,  # Allow 5000 files
+            max_file_size=10 * 1024 * 1024  # 10MB per file
+        )
+
+# Replace the parser
+starlette.formparsers.MultiPartParser = CustomMultiPartParser
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Adaptive Router Demo API",
@@ -27,7 +45,11 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Vite and Next.js defaults
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://mathjams.github.io"  # GitHub Pages
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

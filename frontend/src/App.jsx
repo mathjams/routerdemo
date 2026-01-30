@@ -65,11 +65,12 @@ function App() {
       // const labels = [0, 1, 2, ...]; // Example
       // formData.append('labels', JSON.stringify(labels));
 
-      // Make request
+      // Make request with extended timeout for large batches
       const response = await axios.post(`${API_BASE_URL}/predict`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
+        timeout: 600000, // 10 minutes for large batches (5000+ images)
       });
 
       setResults(response.data);
@@ -139,6 +140,19 @@ function App() {
             <div>
               <h3 className="text-sm font-semibold text-red-800">Error</h3>
               <p className="text-sm text-red-700 mt-1">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Large Batch Warning */}
+        {files.length > 1000 && (
+          <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <h3 className="text-sm font-semibold text-yellow-800">Large Batch ({files.length} images)</h3>
+              <p className="text-sm text-yellow-700 mt-1">
+                Processing may take several minutes. The page may appear unresponsive during inference.
+              </p>
             </div>
           </div>
         )}

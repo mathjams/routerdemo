@@ -1,18 +1,41 @@
-import React, { useRef } from 'react';
-import { Upload, X } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Upload, X, AlertCircle } from 'lucide-react';
+
+const MAX_FILES = 5000;
 
 const FileUpload = ({ files, setFiles, onSubmit, isLoading }) => {
   const fileInputRef = useRef(null);
+  const [warning, setWarning] = useState(null);
 
   const handleFileChange = (e) => {
     const selectedFiles = Array.from(e.target.files);
-    setFiles((prev) => [...prev, ...selectedFiles]);
+    const totalFiles = files.length + selectedFiles.length;
+
+    if (totalFiles > MAX_FILES) {
+      setWarning(`Maximum ${MAX_FILES} files allowed. Only adding first ${MAX_FILES - files.length} files.`);
+      const allowedFiles = selectedFiles.slice(0, MAX_FILES - files.length);
+      setFiles((prev) => [...prev, ...allowedFiles]);
+      setTimeout(() => setWarning(null), 5000);
+    } else {
+      setFiles((prev) => [...prev, ...selectedFiles]);
+      setWarning(null);
+    }
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     const droppedFiles = Array.from(e.dataTransfer.files);
-    setFiles((prev) => [...prev, ...droppedFiles]);
+    const totalFiles = files.length + droppedFiles.length;
+
+    if (totalFiles > MAX_FILES) {
+      setWarning(`Maximum ${MAX_FILES} files allowed. Only adding first ${MAX_FILES - files.length} files.`);
+      const allowedFiles = droppedFiles.slice(0, MAX_FILES - files.length);
+      setFiles((prev) => [...prev, ...allowedFiles]);
+      setTimeout(() => setWarning(null), 5000);
+    } else {
+      setFiles((prev) => [...prev, ...droppedFiles]);
+      setWarning(null);
+    }
   };
 
   const handleDragOver = (e) => {
@@ -33,20 +56,41 @@ const FileUpload = ({ files, setFiles, onSubmit, isLoading }) => {
     <div className="card">
       <h2 className="text-2xl font-bold mb-4">Upload Images</h2>
 
+      {/* Warning Message */}
+      {warning && (
+        <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start gap-2">
+          <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+          <p className="text-sm text-yellow-700">{warning}</p>
+        </div>
+      )}
+
       {/* Drop Zone */}
       <div
-        className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-primary-500 transition-colors cursor-pointer"
-        onClick={() => fileInputRef.current?.click()}
-        onDrop={handleDrop}
+        className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+          files.length >= MAX_FILES
+            ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
+            : 'border-gray-300 hover:border-primary-500 cursor-pointer'
+        }`}
+        onClick={() => files.length < MAX_FILES && fileInputRef.current?.click()}
+        onDrop={files.length < MAX_FILES ? handleDrop : (e) => e.preventDefault()}
         onDragOver={handleDragOver}
       >
         <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
         <p className="text-lg font-medium text-gray-700 mb-2">
-          Drop images here or click to browse
+          {files.length >= MAX_FILES
+            ? 'Maximum file limit reached'
+            : 'Drop images here or click to browse'}
         </p>
         <p className="text-sm text-gray-500">
-          Supports JPG, PNG, BMP, GIF, TIFF, WEBP
+          {files.length >= MAX_FILES
+            ? `Remove some files to upload more (${files.length.toLocaleString()} / ${MAX_FILES.toLocaleString()})`
+            : 'Supports JPG, PNG, BMP, GIF, TIFF, WEBP'}
         </p>
+        {files.length < MAX_FILES && (
+          <p className="text-xs text-gray-400 mt-2">
+            Maximum {MAX_FILES.toLocaleString()} files per batch
+          </p>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -60,8 +104,8 @@ const FileUpload = ({ files, setFiles, onSubmit, isLoading }) => {
       {/* File List */}
       {files.length > 0 && (
         <div className="mt-6">
-          <h3 className="text-lg font-semibold mb-3">
-            Selected Files ({files.length})
+          <h3 className={`text-lg font-semibold mb-3 ${files.length >= MAX_FILES ? 'text-red-600' : files.length > MAX_FILES * 0.8 ? 'text-yellow-600' : ''}`}>
+            Selected Files ({files.length.toLocaleString()} / {MAX_FILES.toLocaleString()})
           </h3>
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {files.map((file, index) => (
