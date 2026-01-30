@@ -71,6 +71,10 @@ class AggregateMetrics(BaseModel):
     accuracy: Optional[float] = None
     params_savings: SavingsMetrics
     time_savings: SavingsMetrics
+    branch_label_distribution: Optional[Dict[str, List[str]]] = Field(
+        default=None,
+        description="Top labels routed to each branch, format: 'Branch 0': ['label1', 'label2', ...]"
+    )
 
 
 class PredictionResponse(BaseModel):

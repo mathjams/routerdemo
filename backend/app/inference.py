@@ -288,12 +288,29 @@ class AdaptiveRouterInference:
             batch_size
         )
 
+        # Calculate dominant labels per branch
+        from collections import defaultdict, Counter
+        branch_labels = defaultdict(list)
+        for result in results:
+            branch_idx = result['route_chosen']
+            label = result['predicted_label']
+            branch_labels[branch_idx].append(label)
+
+        # Get top 5 most common labels per branch (if there are any)
+        branch_label_distribution = {}
+        for branch_idx in range(self.num_branches):
+            if branch_idx in branch_labels and len(branch_labels[branch_idx]) > 0:
+                label_counts = Counter(branch_labels[branch_idx])
+                top_labels = [label for label, count in label_counts.most_common(5)]
+                branch_label_distribution[f"Branch {branch_idx}"] = top_labels
+
         metrics = {
             "routing_distribution": routing_dist,
             "total_images": batch_size,
             "avg_confidence": round(avg_confidence, 4),
             "params_savings": params_savings,
-            "time_savings": time_savings
+            "time_savings": time_savings,
+            "branch_label_distribution": branch_label_distribution if branch_label_distribution else None
         }
 
         return metrics

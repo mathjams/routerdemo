@@ -11,6 +11,7 @@ const MetricsCards = ({ metrics }) => {
     params_savings,
     time_savings,
     routing_distribution,
+    branch_label_distribution,
   } = metrics;
 
   return (
@@ -183,6 +184,43 @@ const MetricsCards = ({ metrics }) => {
             })}
         </div>
       </div>
+
+      {/* Branch Label Distribution */}
+      {branch_label_distribution && Object.keys(branch_label_distribution).length > 0 && (
+        <div className="card">
+          <div className="flex items-center gap-3 mb-4">
+            <Target className="h-6 w-6 text-primary-600" />
+            <h3 className="text-lg font-semibold text-gray-900">
+              Top Labels by Branch
+            </h3>
+          </div>
+          <p className="text-sm text-gray-600 mb-4">
+            Most common predicted labels routed to each branch
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Object.entries(branch_label_distribution)
+              .sort(([a], [b]) => {
+                const branchA = parseInt(a.replace('Branch ', ''));
+                const branchB = parseInt(b.replace('Branch ', ''));
+                return branchA - branchB;
+              })
+              .map(([branch, labels]) => (
+                <div key={branch} className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="font-semibold text-primary-700 mb-2">{branch}</h4>
+                  <ul className="space-y-1">
+                    {labels.map((label, idx) => (
+                      <li key={idx} className="text-sm text-gray-700 flex items-center gap-2">
+                        <span className="text-primary-500">•</span>
+                        <span className="capitalize">{label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

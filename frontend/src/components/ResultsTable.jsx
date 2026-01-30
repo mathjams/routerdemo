@@ -20,6 +20,7 @@ const ResultsTable = ({ results, onRowClick, selectedIndex }) => {
   };
 
   const sortedResults = [...results].sort((a, b) => {
+    // Primary sort by selected field
     let aVal = a[sortField];
     let bVal = b[sortField];
 
@@ -28,11 +29,29 @@ const ResultsTable = ({ results, onRowClick, selectedIndex }) => {
       bVal = bVal.toLowerCase();
     }
 
-    if (sortDirection === 'asc') {
-      return aVal > bVal ? 1 : -1;
-    } else {
-      return aVal < bVal ? 1 : -1;
+    let comparison = 0;
+    if (aVal > bVal) {
+      comparison = 1;
+    } else if (aVal < bVal) {
+      comparison = -1;
     }
+
+    // If primary values are equal, sort by secondary criteria
+    if (comparison === 0) {
+      // Secondary sort: by predicted_label (if not already primary), then route_chosen
+      if (sortField !== 'predicted_label') {
+        const aLabel = a.predicted_label.toLowerCase();
+        const bLabel = b.predicted_label.toLowerCase();
+        comparison = aLabel > bLabel ? 1 : (aLabel < bLabel ? -1 : 0);
+      }
+
+      // Tertiary sort: by route_chosen
+      if (comparison === 0) {
+        comparison = a.route_chosen - b.route_chosen;
+      }
+    }
+
+    return sortDirection === 'asc' ? comparison : -comparison;
   });
 
   const toggleRowExpand = (index) => {
