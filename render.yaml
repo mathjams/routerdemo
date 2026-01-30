@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: adaptive-router-backend
+    env: python
+    buildCommand: "pip install -r backend/requirements.txt"
+    startCommand: "cd backend && python run.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.0
+      - key: USE_CUDA
+        value: 0
