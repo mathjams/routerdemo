@@ -24,7 +24,8 @@ wheels/
 *.egg
 
 # PyTorch models (large files)
-models/*.pth
+# Temporarily allowing .pth files for deployment
+# models/*.pth
 models/*.pt
 !models/.gitkeep
 
