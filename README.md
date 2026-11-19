@@ -6,9 +6,6 @@ the branch it is sent to. This repo is a web demo of that idea: upload images an
 each one was routed, what that branch predicted, and how the cost compares with always
 using the largest branch.
 
-**Live demo:** <https://mathjams.github.io/routerdemo/>. The backend runs on Render and
-sleeps when idle, so the first request can take a minute or two.
-
 <img src="docs/demo-metrics.png" alt="Parameter savings, time savings and routing distribution for 100 CIFAR-100 test images" width="800">
 
 *The page after classifying 100 random CIFAR-100 test images.*
