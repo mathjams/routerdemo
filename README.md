@@ -6,6 +6,13 @@ the branch it is sent to. This repo is a web demo of that idea: upload images an
 each one was routed, what that branch predicted, and how the cost compares with always
 using the largest branch.
 
+**Live demo:** <https://mathjams.github.io/routerdemo/>. The backend runs on Render and
+sleeps when idle, so the first request can take a minute or two.
+
+<img src="docs/demo-metrics.png" alt="Parameter savings, time savings and routing distribution for 100 CIFAR-100 test images" width="800">
+
+*The page after classifying 100 random CIFAR-100 test images.*
+
 | Model    | Parameters | Architecture                       |
 | -------- | ---------- | ---------------------------------- |
 | Router   | 1.26M      | 4 conv layers, one output per branch |
@@ -14,6 +21,29 @@ using the largest branch.
 | Branch 2 | 6.38M      | `SimpleCNN`, 64 channels × 5 layers |
 | Branch 3 | 9.94M      | `SimpleCNN`, 80 channels × 5 layers |
 | Branch 4 | 14.28M     | `SimpleCNN`, 96 channels × 5 layers |
+
+## Results
+
+Measured on the 10,000 CIFAR-100 test images with [`training/evaluate.py`](training/evaluate.py):
+
+| Strategy                                        | Top-1 accuracy | Branch parameters per image |
+| ----------------------------------------------- | -------------- | --------------------------- |
+| **Routed**: the router picks a branch per image | **57.5%**      | **5.92M** on average        |
+| Always Branch 4 (largest)                       | 57.7%          | 14.28M                      |
+| Always Branch 3                                 | 57.0%          | 9.94M                       |
+| Always Branch 2                                 | 56.5%          | 6.38M                       |
+| Always Branch 1                                 | 58.6%          | 3.01M                       |
+| Always Branch 0 (smallest)                      | 56.9%          | 1.61M                       |
+| Perfect routing (some branch is right)          | 75.7%          | –                           |
+
+Routing lands a quarter of a point below the largest branch while running 59% fewer branch
+parameters per image (the router's own 1.26M are not counted). It does not beat the best
+single branch: Branch 1 alone is slightly more accurate and smaller. The gap to perfect
+routing shows how much a better router could still gain.
+
+The router sends 24%, 24%, 19%, 26% and 7% of the test images to Branches 0–4. Accuracy on
+each branch's share falls from 76% for Branch 0 to 37% for Branch 4, so the images it sends
+to small branches are the easier ones.
 
 ## Run it
 
@@ -37,6 +67,8 @@ format works, but the models are CIFAR-100 classifiers: they see every upload sh
 32×32 and only know [those 100 classes](backend/cifar100.py).
 
 ## What the page shows
+
+<img src="docs/demo-routing.png" alt="Router graph and the first rows of the prediction table for the same 100 test images" width="720">
 
 - **Prediction results** – per image: the 32×32 input, the branch the router chose, that
   branch's prediction, and what the largest branch would have said for the same image.
@@ -63,6 +95,7 @@ backend/
   weights/        router.pth and branch_0.pth ... branch_4.pth (plain state dicts)
 frontend/         React + Vite + Tailwind; src/App.jsx plus four components
 training/         how the weights were produced (optional, see below)
+docs/             the screenshots in this README
 render.yaml       backend deployment on Render
 ```
 
