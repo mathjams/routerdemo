@@ -1,280 +1,123 @@
-import React, { useState } from 'react';
-import { CheckCircle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { CheckCircle, ChevronDown, ChevronUp, XCircle } from 'lucide-react';
 
-const ResultsTable = ({ results, onRowClick, selectedIndex }) => {
-  const [sortField, setSortField] = useState('predicted_label');
-  const [sortDirection, setSortDirection] = useState('asc');
-  const [expandedRows, setExpandedRows] = useState(new Set());
+const PAGE_SIZE = 200; // rows rendered at a time, so huge batches stay responsive
 
-  if (!results || results.length === 0) {
-    return null;
-  }
+const compare = (a, b) =>
+  typeof a === 'string' ? a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }) : a - b;
 
-  const handleSort = (field) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
+const headerClass = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider';
 
-  const sortedResults = [...results].sort((a, b) => {
-    // Primary sort by selected field
-    let aVal = a[sortField];
-    let bVal = b[sortField];
+export default function ResultsTable({ results, baselineBranch, selected, onSelect }) {
+  const [sort, setSort] = useState({ key: 'predicted_label', ascending: true });
+  const [visible, setVisible] = useState(PAGE_SIZE);
 
-    if (typeof aVal === 'string') {
-      aVal = aVal.toLowerCase();
-      bVal = bVal.toLowerCase();
-    }
-
-    let comparison = 0;
-    if (aVal > bVal) {
-      comparison = 1;
-    } else if (aVal < bVal) {
-      comparison = -1;
-    }
-
-    // If primary values are equal, sort by secondary criteria
-    if (comparison === 0) {
-      // Secondary sort: by predicted_label (if not already primary), then route_chosen
-      if (sortField !== 'predicted_label') {
-        const aLabel = a.predicted_label.toLowerCase();
-        const bLabel = b.predicted_label.toLowerCase();
-        comparison = aLabel > bLabel ? 1 : (aLabel < bLabel ? -1 : 0);
-      }
-
-      // Tertiary sort: by route_chosen
-      if (comparison === 0) {
-        comparison = a.route_chosen - b.route_chosen;
-      }
-    }
-
-    return sortDirection === 'asc' ? comparison : -comparison;
-  });
-
-  const toggleRowExpand = (index) => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(index)) {
-      newExpanded.delete(index);
-    } else {
-      newExpanded.add(index);
-    }
-    setExpandedRows(newExpanded);
-  };
+  // Rows remember their original index, so selection survives re-sorting.
+  const rows = useMemo(() => {
+    const direction = sort.ascending ? 1 : -1;
+    return results
+      .map((result, index) => ({ ...result, index }))
+      .sort(
+        (a, b) =>
+          direction *
+          (compare(a[sort.key], b[sort.key]) ||
+            compare(a.predicted_label, b.predicted_label) ||
+            a.route_chosen - b.route_chosen),
+      );
+  }, [results, sort]);
 
   const SortableHeader = ({ field, children }) => (
     <th
-      className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
-      onClick={() => handleSort(field)}
+      className={`${headerClass} cursor-pointer hover:bg-gray-100 transition-colors`}
+      onClick={() => setSort({ key: field, ascending: sort.key === field ? !sort.ascending : true })}
     >
       <div className="flex items-center gap-2">
         {children}
-        {sortField === field && (
-          sortDirection === 'asc' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
-        )}
+        {sort.key === field && (sort.ascending ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />)}
       </div>
     </th>
   );
 
   return (
     <div className="card">
-      <h2 className="text-2xl font-bold mb-4">Prediction Results</h2>
+      <h2 className="text-2xl font-bold">Prediction Results</h2>
+      <p className="text-sm text-gray-600 mt-1 mb-4">
+        Click a row to highlight its branch in the graph. The last columns show what the largest branch
+        would have predicted for the same image.
+      </p>
 
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Preview
-              </th>
+              <th className={headerClass}>Preview</th>
               <SortableHeader field="filename">Filename</SortableHeader>
               <SortableHeader field="predicted_label">Routed Prediction</SortableHeader>
               <SortableHeader field="confidence">Confidence</SortableHeader>
               <SortableHeader field="route_chosen">Route</SortableHeader>
-              <SortableHeader field="branch4_predicted_label">Branch 4 Prediction</SortableHeader>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Match?
-              </th>
-              {results[0].ground_truth !== null && (
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Correct
-                </th>
-              )}
-              <th className="px-4 py-3"></th>
+              <SortableHeader field="baseline_label">Branch {baselineBranch} Prediction</SortableHeader>
+              <th className={headerClass}>Match?</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {sortedResults.map((result, index) => {
-              const isExpanded = expandedRows.has(index);
-              const isSelected = selectedIndex === index;
-
-              return (
-                <React.Fragment key={index}>
-                  <tr
-                    className={`hover:bg-gray-50 cursor-pointer transition-colors ${
-                      isSelected ? 'bg-primary-50' : ''
-                    }`}
-                    onClick={() => {
-                      onRowClick?.(index);
-                      toggleRowExpand(index);
-                    }}
-                  >
-                    {/* Preview */}
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <img
-                        src={result.image_preview}
-                        alt={result.filename}
-                        className="w-16 h-16 object-cover rounded border border-gray-200"
-                      />
-                    </td>
-
-                    {/* Filename */}
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 max-w-xs truncate">
-                      {result.filename}
-                    </td>
-
-                    {/* Routed Prediction */}
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {result.predicted_label}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        Class {result.predicted_class}
-                      </div>
-                    </td>
-
-                    {/* Confidence */}
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
-                          <div
-                            className="bg-primary-600 h-2 rounded-full"
-                            style={{ width: `${result.confidence * 100}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-sm text-gray-900">
-                          {(result.confidence * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* Route */}
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                        Branch {result.route_chosen}
-                      </span>
-                    </td>
-
-                    {/* Branch 4 Prediction */}
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-700">
-                        {result.branch4_predicted_label}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {(result.branch4_confidence * 100).toFixed(1)}%
-                      </div>
-                    </td>
-
-                    {/* Match between Routed and Branch 4 */}
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      {result.predicted_class === result.branch4_predicted_class ? (
-                        <CheckCircle className="h-5 w-5 text-green-500" />
-                      ) : (
-                        <XCircle className="h-5 w-5 text-orange-500" />
-                      )}
-                    </td>
-
-                    {/* Correctness */}
-                    {result.ground_truth !== null && (
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        {result.is_correct ? (
-                          <CheckCircle className="h-5 w-5 text-green-500" />
-                        ) : (
-                          <XCircle className="h-5 w-5 text-red-500" />
-                        )}
-                      </td>
-                    )}
-
-                    {/* Expand */}
-                    <td className="px-4 py-4 whitespace-nowrap text-right text-sm">
-                      {isExpanded ? (
-                        <ChevronUp className="h-5 w-5 text-gray-400" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5 text-gray-400" />
-                      )}
-                    </td>
-                  </tr>
-
-                  {/* Expanded Row */}
-                  {isExpanded && (
-                    <tr className="bg-gray-50">
-                      <td colSpan="9" className="px-4 py-4">
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div className="col-span-2 font-semibold text-gray-700 border-b pb-2">
-                            Routed Prediction (Branch {result.route_chosen})
-                          </div>
-                          <div>
-                            <span className="font-semibold">Predicted Class:</span> {result.predicted_class}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Predicted Label:</span> {result.predicted_label}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Confidence:</span> {result.confidence.toFixed(4)}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Route Confidence:</span> {result.route_confidence.toFixed(4)}
-                          </div>
-
-                          <div className="col-span-2 font-semibold text-gray-700 border-b pb-2 mt-4">
-                            Branch 4 Comparison (Largest Model)
-                          </div>
-                          <div>
-                            <span className="font-semibold">Branch 4 Class:</span> {result.branch4_predicted_class}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Branch 4 Label:</span> {result.branch4_predicted_label}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Branch 4 Confidence:</span> {result.branch4_confidence.toFixed(4)}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Predictions Match:</span>{' '}
-                            {result.predicted_class === result.branch4_predicted_class ? (
-                              <span className="text-green-600">Yes ✓</span>
-                            ) : (
-                              <span className="text-orange-600">No ✗</span>
-                            )}
-                          </div>
-
-                          {result.ground_truth !== null && (
-                            <>
-                              <div className="col-span-2 font-semibold text-gray-700 border-b pb-2 mt-4">
-                                Ground Truth
-                              </div>
-                              <div>
-                                <span className="font-semibold">Ground Truth:</span> {result.ground_truth}
-                              </div>
-                              <div>
-                                <span className="font-semibold">Routed Correct:</span>{' '}
-                                {result.is_correct ? 'Yes' : 'No'}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+            {rows.slice(0, visible).map((result) => (
+              <tr
+                key={result.index}
+                onClick={() => onSelect(result.index)}
+                className={`cursor-pointer transition-colors ${
+                  selected === result.index ? 'bg-primary-50' : 'hover:bg-gray-50'
+                }`}
+              >
+                <td className="px-4 py-4">
+                  <img
+                    src={result.image_preview}
+                    alt={result.filename}
+                    className="w-16 h-16 rounded border border-gray-200"
+                  />
+                </td>
+                <td className="px-4 py-4 text-sm text-gray-900 max-w-xs truncate">{result.filename}</td>
+                <td className="px-4 py-4 whitespace-nowrap">
+                  <div className="text-sm font-medium text-gray-900">{result.predicted_label}</div>
+                  <div className="text-xs text-gray-500">Class {result.predicted_class}</div>
+                </td>
+                <td className="px-4 py-4 whitespace-nowrap">
+                  <div className="flex items-center">
+                    <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
+                      <div className="bg-primary-600 h-2 rounded-full" style={{ width: `${result.confidence * 100}%` }} />
+                    </div>
+                    <span className="text-sm text-gray-900">{(result.confidence * 100).toFixed(1)}%</span>
+                  </div>
+                </td>
+                <td className="px-4 py-4 whitespace-nowrap">
+                  <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                    Branch {result.route_chosen}
+                  </span>
+                  <div className="text-xs text-gray-500 mt-1">
+                    router {(result.route_confidence * 100).toFixed(1)}% sure
+                  </div>
+                </td>
+                <td className="px-4 py-4 whitespace-nowrap">
+                  <div className="text-sm font-medium text-gray-700">{result.baseline_label}</div>
+                  <div className="text-xs text-gray-500">{(result.baseline_confidence * 100).toFixed(1)}%</div>
+                </td>
+                <td className="px-4 py-4">
+                  {result.predicted_class === result.baseline_class ? (
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                  ) : (
+                    <XCircle className="h-5 w-5 text-orange-500" />
                   )}
-                </React.Fragment>
-              );
-            })}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
+
+      {rows.length > visible && (
+        <button onClick={() => setVisible(visible + PAGE_SIZE)} className="btn btn-secondary w-full mt-4">
+          Show more ({visible.toLocaleString()} of {rows.length.toLocaleString()} shown)
+        </button>
+      )}
     </div>
   );
-};
-
-export default ResultsTable;
+}

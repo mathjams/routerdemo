@@ -1,43 +1,39 @@
-import React from 'react';
-import { Network, Cpu, Zap } from 'lucide-react';
+const WIDTH = 640;
+const HEIGHT = 420;
+const CENTER = { x: WIDTH / 2, y: HEIGHT / 2 };
+const ORBIT = 150; // distance from the router to each branch
+const ROUTER_RADIUS = 46;
 
-const RouterGraph = ({ modelInfo, selectedRoute, routingDistribution }) => {
-  if (!modelInfo) {
-    return (
-      <div className="card">
-        <h2 className="text-2xl font-bold mb-4">Router Architecture</h2>
-        <p className="text-gray-500">Loading model information...</p>
-      </div>
-    );
-  }
+const millions = (params) => `${(params / 1e6).toFixed(2)}M params`;
 
+function Node({ x, y, radius, className, name, model }) {
+  return (
+    <g className="fill-white" textAnchor="middle">
+      <circle cx={x} cy={y} r={radius} className={`drop-shadow-lg transition-all duration-300 ${className}`} />
+      <text x={x} y={y - 9} className="text-sm font-bold">{name}</text>
+      <text x={x} y={y + 6} className="text-[11px]">{millions(model.params)}</text>
+      <text x={x} y={y + 20} className="text-[11px]">{model.latency_ms.toFixed(2)} ms</text>
+    </g>
+  );
+}
+
+export default function RouterGraph({ modelInfo, routing, selectedRoute }) {
   const { router, branches } = modelInfo;
+  const maxParams = Math.max(...branches.map((branch) => branch.params));
+  const total = routing.reduce((sum, { count }) => sum + count, 0);
 
-  // Find largest branch for normalization
-  const maxParams = Math.max(...branches.map((b) => b.params));
-
-  // Calculate node sizes (proportional to params)
-  const getNodeSize = (params) => {
-    const minSize = 40;
-    const maxSize = 80;
-    const ratio = params / maxParams;
-    return minSize + (maxSize - minSize) * ratio;
-  };
-
-  // SVG dimensions
-  const width = 800;
-  const height = 400;
-  const routerX = width / 2;
-  const routerY = height / 2;
-  const routerSize = 60;
-
-  // Calculate branch positions (circular layout)
-  const branchPositions = branches.map((_, index) => {
-    const angle = (index * 2 * Math.PI) / branches.length - Math.PI / 2;
-    const radius = 140;
+  // Branches sit on a circle around the router, starting at the top; bigger models get bigger nodes.
+  const nodes = branches.map((branch, index) => {
+    const angle = (2 * Math.PI * index) / branches.length - Math.PI / 2;
+    const direction = { x: Math.cos(angle), y: Math.sin(angle) };
     return {
-      x: routerX + radius * Math.cos(angle),
-      y: routerY + radius * Math.sin(angle),
+      branch,
+      direction,
+      x: CENTER.x + ORBIT * direction.x,
+      y: CENTER.y + ORBIT * direction.y,
+      radius: 40 + 22 * (branch.params / maxParams),
+      count: routing[index].count,
+      isSelected: selectedRoute === index,
     };
   });
 
@@ -45,162 +41,63 @@ const RouterGraph = ({ modelInfo, selectedRoute, routingDistribution }) => {
     <div className="card">
       <h2 className="text-2xl font-bold mb-4">Router Architecture</h2>
 
-      <svg
-        width={width}
-        height={height}
-        className="mx-auto"
-        style={{ maxWidth: '100%', height: 'auto' }}
-      >
-        {/* Connections */}
-        {branches.map((branch, index) => {
-          const pos = branchPositions[index];
-          const isSelected = selectedRoute === index;
-          const routeCount = routingDistribution?.[index] || 0;
-
+      <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="mx-auto w-full max-w-2xl">
+        {nodes.map(({ x, y, radius, direction, count, isSelected }, index) => {
+          // Label the visible part of the link, halfway between the two circles.
+          const middle = (ROUTER_RADIUS + ORBIT - radius) / 2;
+          const label = { x: CENTER.x + middle * direction.x, y: CENTER.y + middle * direction.y };
           return (
-            <g key={`connection-${index}`}>
-              {/* Line */}
+            <g key={index}>
               <line
-                x1={routerX}
-                y1={routerY}
-                x2={pos.x}
-                y2={pos.y}
-                stroke={isSelected ? '#0ea5e9' : '#d1d5db'}
-                strokeWidth={isSelected ? 3 : 2}
-                strokeDasharray={isSelected ? '' : '5,5'}
-                className="transition-all duration-300"
+                x1={CENTER.x}
+                y1={CENTER.y}
+                x2={x}
+                y2={y}
+                strokeWidth={2 + (10 * count) / total}
+                strokeDasharray={count > 0 ? undefined : '5 5'}
+                className={`transition-all duration-300 ${isSelected ? 'stroke-primary-500' : 'stroke-gray-300'}`}
               />
-
-              {/* Arrow */}
-              <polygon
-                points={`${pos.x},${pos.y} ${pos.x - 5},${pos.y - 5} ${pos.x + 5},${pos.y - 5}`}
-                fill={isSelected ? '#0ea5e9' : '#d1d5db'}
-                transform={`rotate(${(index * 360) / branches.length - 90}, ${pos.x}, ${pos.y})`}
-              />
-
-              {/* Route count label */}
-              {routeCount > 0 && (
+              {count > 0 && (
                 <text
-                  x={(routerX + pos.x) / 2}
-                  y={(routerY + pos.y) / 2}
-                  className="text-xs font-semibold"
-                  fill="#6b7280"
+                  x={label.x}
+                  y={label.y}
                   textAnchor="middle"
+                  dominantBaseline="central"
+                  className="text-xs font-semibold fill-gray-600 stroke-white [paint-order:stroke] [stroke-width:4px]"
                 >
-                  {routeCount}
+                  {count.toLocaleString()}
                 </text>
               )}
             </g>
           );
         })}
 
-        {/* Router Node */}
-        <g>
-          <circle
-            cx={routerX}
-            cy={routerY}
-            r={routerSize}
-            fill="#8b5cf6"
-            className="drop-shadow-lg"
+        <Node {...CENTER} radius={ROUTER_RADIUS} className="fill-violet-500" name="Router" model={router} />
+        {nodes.map(({ branch, x, y, radius, isSelected }, index) => (
+          <Node
+            key={index}
+            x={x}
+            y={y}
+            radius={radius}
+            className={isSelected ? 'fill-primary-500' : 'fill-emerald-500 opacity-80'}
+            name={`Branch ${index}`}
+            model={branch}
           />
-          <text
-            x={routerX}
-            y={routerY - 5}
-            className="text-sm font-bold"
-            fill="white"
-            textAnchor="middle"
-          >
-            Router
-          </text>
-          <text
-            x={routerX}
-            y={routerY + 10}
-            className="text-xs"
-            fill="white"
-            textAnchor="middle"
-          >
-            {router.params_m}M params
-          </text>
-        </g>
-
-        {/* Branch Nodes */}
-        {branches.map((branch, index) => {
-          const pos = branchPositions[index];
-          const size = getNodeSize(branch.params);
-          const isSelected = selectedRoute === index;
-
-          return (
-            <g key={`branch-${index}`}>
-              {/* Node circle */}
-              <circle
-                cx={pos.x}
-                cy={pos.y}
-                r={size}
-                fill={isSelected ? '#0ea5e9' : '#10b981'}
-                className="drop-shadow-lg transition-all duration-300"
-                opacity={isSelected ? 1 : 0.8}
-              />
-
-              {/* Branch label */}
-              <text
-                x={pos.x}
-                y={pos.y - 10}
-                className="text-sm font-bold"
-                fill="white"
-                textAnchor="middle"
-              >
-                Branch {index}
-              </text>
-
-              {/* Params */}
-              <text
-                x={pos.x}
-                y={pos.y + 5}
-                className="text-xs"
-                fill="white"
-                textAnchor="middle"
-              >
-                {branch.params_m}M
-              </text>
-
-              {/* FLOPs (if available) */}
-              {branch.flops_m && (
-                <text
-                  x={pos.x}
-                  y={pos.y + 18}
-                  className="text-xs"
-                  fill="white"
-                  textAnchor="middle"
-                >
-                  {branch.flops_m}M FLOPs
-                </text>
-              )}
-            </g>
-          );
-        })}
+        ))}
       </svg>
 
-      {/* Legend */}
-      <div className="mt-6 flex flex-wrap gap-6 justify-center text-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-purple-500"></div>
-          <span>Router</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-green-500"></div>
-          <span>Branch (idle)</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-primary-500"></div>
-          <span>Branch (selected)</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-1 bg-gray-300"></div>
-          <span>Node size ~ parameters</span>
-        </div>
+      <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2 justify-center text-sm">
+        <span className="flex items-center gap-2">
+          <span className="w-4 h-4 rounded-full bg-violet-500" /> Router
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="w-4 h-4 rounded-full bg-emerald-500" /> Branch
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="w-4 h-4 rounded-full bg-primary-500" /> Branch of the selected image
+        </span>
+        <span className="text-gray-500">Node size ~ parameters · line width ~ images routed · ms = single-image latency</span>
       </div>
     </div>
   );
-};
-
-export default RouterGraph;
+}

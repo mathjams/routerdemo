@@ -1,349 +1,129 @@
 # Adaptive Router Demo
 
-A full-stack web application for visualizing adaptive routing in neural networks using PyTorch. Upload images, run inference through a router-based model system, and see real-time metrics on computational savings.
+A small **router** network looks at each image and sends it to one of five CIFAR-100
+classifiers ("branches") of increasing size, so that an image only costs as much compute as
+the branch it is sent to. This repo is a web demo of that idea: upload images and see where
+each one was routed, what that branch predicted, and how the cost compares with always
+using the largest branch.
 
-## Features
+| Model    | Parameters | Architecture                       |
+| -------- | ---------- | ---------------------------------- |
+| Router   | 1.26M      | 4 conv layers, one output per branch |
+| Branch 0 | 1.61M      | `SimpleCNN`, 64 channels × 4 layers |
+| Branch 1 | 3.01M      | `SimpleCNN`, 88 channels × 4 layers |
+| Branch 2 | 6.38M      | `SimpleCNN`, 64 channels × 5 layers |
+| Branch 3 | 9.94M      | `SimpleCNN`, 80 channels × 5 layers |
+| Branch 4 | 14.28M     | `SimpleCNN`, 96 channels × 5 layers |
 
-- 🚀 **Dynamic Routing**: Router model selects optimal branch for each input
-- 📊 **Interactive Visualization**: SVG-based router graph showing model architecture
-- 💾 **Computational Savings**: Track FLOPs and parameters saved vs baseline
-- 📸 **Batch Processing**: Upload and process multiple images at once
-- 📈 **Detailed Metrics**: Routing distribution, accuracy, confidence scores
-- 🎨 **Modern UI**: React + Tailwind CSS with responsive design
+## Run it
 
-## Architecture
-
-- **Backend**: FastAPI + PyTorch
-- **Frontend**: React + Vite + Tailwind CSS
-- **Models**: Router model + N branch models (CIFAR-100 classification)
-
-## Prerequisites
-
-- Python 3.8+
-- Node.js 16+
-- PyTorch 2.0+
-- Your trained models (router.pth, branch_0.pth, branch_1.pth, ...)
-
-## Quick Start
-
-### 1. Setup Backend
+You need Python 3.9+ and Node 18+. The trained weights are already in the repo.
 
 ```bash
-# Navigate to backend directory
-cd backend
-
-# Create virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Place your model files in backend/models/
-# - router.pth
-# - branch_0.pth
-# - branch_1.pth
-# - branch_2.pth
-# - ... (as many branches as you have)
+# Terminal 1: API on http://localhost:8000
+pip install -r backend/requirements.txt
+python backend/run.py
 ```
 
-**Important**: Update `config.py` to match your setup:
-- Set the correct number of branch models in `BRANCH_PATHS`
-- Adjust `NUM_CLASSES` if not using CIFAR-100
-- Update `CIFAR100_CLASSES` or replace with your class names
-
-### 2. Setup Frontend
-
 ```bash
-# Navigate to frontend directory
+# Terminal 2: web app on http://localhost:5173
 cd frontend
-
-# Install dependencies
 npm install
-```
-
-### 3. Run the Application
-
-**Terminal 1 - Start Backend:**
-```bash
-cd backend
-python run.py
-```
-
-The backend will start on `http://localhost:8000`
-
-**Terminal 2 - Start Frontend:**
-```bash
-cd frontend
 npm run dev
 ```
 
-The frontend will start on `http://localhost:5173`
+Open <http://localhost:5173>, drop in some images and press **Run Inference**. Any image
+format works, but the models are CIFAR-100 classifiers: they see every upload shrunk to
+32×32 and only know [those 100 classes](backend/cifar100.py).
 
-### 4. Use the Application
+## What the page shows
 
-1. Open `http://localhost:5173` in your browser
-2. Upload one or more images (JPG, PNG, etc.)
-3. Click "Run Inference"
-4. View results:
-   - Predictions with confidence scores
-   - Router graph showing which branches were used
-   - Computational savings metrics
-   - Routing distribution
+- **Prediction results** – per image: the 32×32 input, the branch the router chose, that
+  branch's prediction, and what the largest branch would have said for the same image.
+  Click a row to highlight its branch in the graph.
+- **Router architecture** – the router and its branches. Node size follows parameter
+  count, line width follows how many images took that route.
+- **Routing distribution** and **top labels by branch** – which branch handles what.
+- **Parameters saved** – the average size of the branch each image ran through, against
+  the largest branch. The router's own parameters are not counted.
+- **Time saved** – each model's single-image latency is measured once when the server
+  starts. "Routed" is router + chosen branch, averaged over the batch; the baseline is
+  router + largest branch. Both sides include the router pass, so against the largest
+  branch running on its own (no router) the saving is smaller.
 
-## Project Structure
+## Layout
 
 ```
-routerdemo/
-├── backend/
-│   ├── app/
-│   │   ├── main.py              # FastAPI application
-│   │   ├── inference.py         # Model loading & inference
-│   │   ├── preprocessing.py     # Image preprocessing
-│   │   ├── utils.py             # FLOPs/params calculation
-│   │   └── models.py            # API schemas
-│   ├── models/                  # Place your .pth files here
-│   ├── config.py                # Configuration
-│   ├── requirements.txt
-│   └── run.py
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── FileUpload.jsx
-│   │   │   ├── RouterGraph.jsx
-│   │   │   ├── ResultsTable.jsx
-│   │   │   └── MetricsCards.jsx
-│   │   ├── App.jsx
-│   │   └── main.jsx
-│   ├── package.json
-│   └── vite.config.js
-└── README.md
+backend/
+  run.py          starts the server
+  app.py          FastAPI endpoints: /health, /model-info, /predict
+  inference.py    preprocessing, routing, metrics
+  models.py       the two architectures and the weight loader
+  cifar100.py     class names and normalisation constants
+  weights/        router.pth and branch_0.pth ... branch_4.pth (plain state dicts)
+frontend/         React + Vite + Tailwind; src/App.jsx plus four components
+training/         how the weights were produced (optional, see below)
+render.yaml       backend deployment on Render
 ```
 
-## API Endpoints
+## API
 
-### GET `/health`
-Health check endpoint.
+```bash
+curl -F "files=@cat.png" -F "files=@dog.jpg" http://localhost:8000/predict
+```
 
-**Response:**
+returns one entry per image plus metrics for the batch (up to 5,000 files per request):
+
 ```json
 {
-  "status": "healthy",
-  "models_loaded": true,
-  "num_branches": 4
+  "results": [{"filename": "cat.png", "predicted_label": "tiger", "confidence": 0.71,
+               "route_chosen": 2, "route_confidence": 0.22,
+               "baseline_label": "tiger", "baseline_confidence": 0.84, "...": "..."}],
+  "metrics": {"total_images": 2, "avg_confidence": 0.64,
+              "routing": [{"count": 0, "top_labels": []}, "... one per branch"],
+              "params_savings": {"routed": 6384740, "baseline": 14277220, "savings_percent": 55.28},
+              "time_savings": {"routed": 1.1, "baseline": 1.7, "savings_percent": 35.3}},
+  "skipped": []
 }
 ```
 
-### GET `/model-info`
-Get model architecture information.
+The full schema, with a form to try it, is at <http://localhost:8000/docs>.
 
-**Response:**
-```json
-{
-  "num_branches": 4,
-  "num_classes": 100,
-  "branches": [...],
-  "router": {...}
-}
-```
+## Using your own models
 
-### POST `/predict`
-Run inference on uploaded images.
+Replace the files in `backend/weights/` with your own state dicts: `router.pth` (a
+`RouterModel`) and one `branch_<i>.pth` (a `SimpleCNN`) per router output. The number of
+branches and their sizes are read from the weights, so nothing else needs changing. For a
+dataset other than CIFAR-100, also edit `backend/cifar100.py`.
 
-**Request:**
-- Form data with multiple image files
-- Optional: JSON array of ground truth labels
+## Training (optional)
 
-**Response:**
-```json
-{
-  "results": [...],
-  "metrics": {
-    "routing_distribution": {...},
-    "params_savings": {...},
-    "flops_savings": {...}
-  }
-}
-```
+`training/` contains the code that produced the weights. It needs `torchvision`, downloads
+CIFAR-100 (~170 MB) into `./data`, and realistically needs a GPU.
 
-## Configuration
-
-### Backend Configuration
-
-Edit `backend/config.py`:
-
-```python
-# Model paths
-BRANCH_PATHS = [
-    MODELS_DIR / "branch_0.pth",
-    MODELS_DIR / "branch_1.pth",
-    # Add more branches as needed
-]
-
-# Number of classes (e.g., 100 for CIFAR-100)
-NUM_CLASSES = 100
-
-# Class names
-CIFAR100_CLASSES = [...]  # Update with your class names
-
-# Device
-DEVICE = "cuda" if os.environ.get("USE_CUDA") == "1" else "cpu"
-```
-
-To use GPU:
 ```bash
-USE_CUDA=1 python run.py
+pip install torchvision
+python -m training.train                                         # writes runs/<timestamp>/
+python -m training.evaluate --weights runs/<timestamp>/weights   # accuracy on the test set
+python -m training.evaluate                                      # same, for backend/weights
 ```
 
-### Frontend Configuration
+Training alternates between two phases: the branches train on the samples the router sends
+them, then the router (with branches frozen) learns to pick the branch with the lowest
+loss + cost for each sample while keeping every branch in use. The hyperparameters and
+branch sizes are at the top of [`training/train.py`](training/train.py). A full run is
+4,000 outer steps and keeps a ~450 MB checkpoint every 10 steps, so check your disk first.
+To serve a trained model, copy `runs/<timestamp>/weights/*.pth` into `backend/weights/`.
 
-Create `frontend/.env` (optional):
-```
-VITE_API_URL=http://localhost:8000
-```
+## Deploying
 
-## Model Loading
-
-The application expects PyTorch models saved as full models (not just state_dicts). If your models are saved differently, modify `inference.py`:
-
-### If you have state_dicts only:
-
-1. Define your model architecture classes
-2. Modify `load_models()` in `inference.py`:
-
-```python
-# Example for state_dict loading
-router = YourRouterModel()
-router.load_state_dict(torch.load(router_path, map_location=self.device))
-
-branch = YourBranchModel()
-branch.load_state_dict(torch.load(branch_path, map_location=self.device))
-```
-
-### If you have full models:
-
-The current code should work as-is:
-```python
-self.router = torch.load(router_path, map_location=self.device)
-branch = torch.load(branch_path, map_location=self.device)
-```
-
-## Customization
-
-### Adding Ground Truth Labels
-
-To compare predictions against ground truth:
-
-1. Prepare a JSON array of labels: `[0, 1, 2, ...]`
-2. Update `App.jsx` to include labels in the form data:
-
-```javascript
-const labels = [0, 1, 2, ...]; // Your ground truth labels
-formData.append('labels', JSON.stringify(labels));
-```
-
-### Changing Image Size
-
-If your models use a different input size than 32×32:
-
-1. Update `INPUT_SIZE` in `backend/config.py`
-2. Update normalization stats if needed
-
-### Custom Class Names
-
-Replace `CIFAR100_CLASSES` in `backend/config.py` with your class names.
-
-## Troubleshooting
-
-### Models Not Loading
-
-**Problem**: "Models not loaded" warning on startup
-
-**Solution**:
-- Check that model files exist in `backend/models/`
-- Verify file names match those in `config.py`
-- Check console output for specific error messages
-- Ensure models are saved in compatible PyTorch format
-
-### FLOPs Calculation Not Working
-
-**Problem**: FLOPs showing as `null`
-
-**Solution**:
-- Install fvcore: `pip install fvcore`
-- If still not working, the app will fall back to showing only parameters
-
-### CORS Errors
-
-**Problem**: Frontend can't connect to backend
-
-**Solution**:
-- Check that backend is running on port 8000
-- Check that frontend is running on port 5173
-- Verify CORS settings in `backend/app/main.py`
-
-### Import Errors
-
-**Problem**: Module not found errors
-
-**Solution**:
-- Ensure virtual environment is activated
-- Reinstall requirements: `pip install -r requirements.txt`
-- For frontend: `npm install`
-
-## Performance Tips
-
-1. **GPU Acceleration**: Set `USE_CUDA=1` environment variable
-2. **Batch Size**: Adjust `BATCH_SIZE` in `config.py` for larger batches
-3. **Model Optimization**: Use `torch.jit.script()` for production deployment
-
-## Development
-
-### Backend Development
-
-With auto-reload enabled:
-```bash
-python run.py  # uvicorn auto-reload is enabled by default
-```
-
-### Frontend Development
-
-Vite dev server with hot reload:
-```bash
-npm run dev
-```
-
-### Building for Production
-
-**Backend:**
-```bash
-# Set reload=False in run.py
-python run.py
-```
-
-**Frontend:**
-```bash
-npm run build
-npm run preview
-```
+- **Backend** – `render.yaml` deploys it on [Render](https://render.com). On any other
+  host: `pip install -r backend/requirements.txt`, then `python backend/run.py`, which
+  listens on `$PORT`.
+- **Frontend** – put the backend's URL in `frontend/.env.production`, then run
+  `npm run deploy` in `frontend/` to publish the build to the repo's `gh-pages` branch
+  (GitHub Pages).
 
 ## License
 
-MIT License - feel free to use this for your projects!
-
-## Credits
-
-Built with:
-- [FastAPI](https://fastapi.tiangolo.com/)
-- [PyTorch](https://pytorch.org/)
-- [React](https://react.dev/)
-- [Vite](https://vitejs.dev/)
-- [Tailwind CSS](https://tailwindcss.com/)
-- [Lucide Icons](https://lucide.dev/)
-
-## Support
-
-For issues or questions:
-1. Check the troubleshooting section
-2. Review console output for error messages
-3. Ensure all dependencies are installed correctly
+MIT

@@ -1,44 +1,19 @@
-import os
+"""CIFAR-100 loading and the small batching helpers the training loop uses."""
 import random
-import torch
-import torchvision
-from torchvision import transforms
-from torch.utils.data import DataLoader, Subset
 from dataclasses import dataclass
 from typing import Deque, List
 
+import torch
+import torchvision
+from torch.utils.data import DataLoader, Subset
+from torchvision import transforms
 
-def reset_module(m):
-    if hasattr(m, "reset_parameters"):
-        m.reset_parameters()
-
-
-def save_checkpoint(network, branch_optimizers, router_optimizer, step, path):
-    ckpt = {
-        "step": step,
-        "router_state": network.router.state_dict(),
-        "branch_states": [b.state_dict() for b in network.models],
-        "router_opt_state": router_optimizer.state_dict() if router_optimizer is not None else None,
-        "branch_opt_states": [opt.state_dict() for opt in branch_optimizers] if branch_optimizers is not None else None,
-        "costs": network.costs.detach().cpu(),
-        "branches": network.branches,
-    }
-    torch.save(ckpt, path)
-    print("Saved:", path)
+from backend.cifar100 import MEAN, STD
 
 
-def seed_all(seed: int = 0) -> None:
-    random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-
-def get_imagenet_dataloaders(data_dir, batch_size=64, num_workers=2, subset_size=None, download=True):
-    normalize = transforms.Normalize(
-        mean=(0.5071, 0.4867, 0.4408),
-        std=(0.2675, 0.2565, 0.2761),
-    )
+def get_cifar100_dataloaders(data_dir, batch_size=64, num_workers=2, subset_size=None, download=True):
+    """Train and test loaders. `subset_size` trains on a random subset, for quick experiments."""
+    normalize = transforms.Normalize(mean=MEAN, std=STD)
     train_transforms = transforms.Compose(
         [transforms.RandomCrop(32, padding=4), transforms.RandomHorizontalFlip(), transforms.ToTensor(), normalize]
     )
@@ -66,6 +41,8 @@ def infinite_loader(loader: DataLoader):
 
 
 class CUDAPrefetcher:
+    """Endless batches, each already copied to the GPU while the previous one was being used."""
+
     def __init__(self, loader: DataLoader, device: torch.device):
         self.loader = loader
         self.device = device
@@ -95,6 +72,8 @@ class CUDAPrefetcher:
 
 @dataclass
 class TensorQueue:
+    """FIFO of tensor rows: add chunks of any size, pop exact-size batches."""
+
     chunks: Deque[torch.Tensor]
     total: int = 0
 

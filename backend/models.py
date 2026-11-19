@@ -1,23 +1,24 @@
+"""Model architectures: the branch classifiers and the router that picks between them."""
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
+# On CPUs without oneDNN (e.g. Apple silicon) PyTorch switches to NNPACK for batches
+# of 16+, which is several times slower than its default convolution.
+torch.backends.nnpack.set_flags(False)
+
 
 class SimpleCNN(nn.Module):
-    def __init__(
-        self,
-        num_classes=100,
-        base_channels=32,
-        num_layers=3,
-        drop2d=0.1,   # conv-feature dropout
-        drop=0.3      # classifier dropout
-    ):
+    """A branch classifier. `base_channels` (width) and `num_layers` (depth) set its size."""
+
+    def __init__(self, num_classes=100, base_channels=32, num_layers=3, drop2d=0.1, drop=0.3):
         super().__init__()
         layers = [
             nn.Conv2d(3, base_channels, 7, 2, 3),
             nn.BatchNorm2d(base_channels),
             nn.ReLU(True),
             nn.Dropout2d(p=drop2d),
-
             nn.MaxPool2d(3, 2, 1),
         ]
         in_ch = base_channels
@@ -33,7 +34,7 @@ class SimpleCNN(nn.Module):
 
         self.features = nn.Sequential(*layers)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.dropout = nn.Dropout(p=drop)   # after flatten
+        self.dropout = nn.Dropout(p=drop)
         self.classifier = nn.Linear(in_ch, num_classes)
 
     def forward(self, x):
@@ -43,13 +44,28 @@ class SimpleCNN(nn.Module):
         x = self.dropout(x)
         return self.classifier(x)
 
+    @classmethod
+    def from_state_dict(cls, state):
+        """Rebuild a branch from its weights: width and depth are read off the conv layers."""
+        convs = [w for name, w in state.items() if name.startswith("features.") and w.dim() == 4]
+        model = cls(
+            num_classes=state["classifier.weight"].shape[0],
+            base_channels=convs[0].shape[0],
+            num_layers=len(convs),
+        )
+        model.load_state_dict(state)
+        return model
+
+
 class RouterModel(nn.Module):
+    """Looks at an image and scores each branch; the highest score is the route."""
+
     def __init__(self, num_branches: int, drop2d=0.1, drop=0.2):
         super().__init__()
         c1, c2, c3, c4 = 64, 128, 256, 384  # ~1.26M params for 5 branches
 
         self.features = nn.Sequential(
-            nn.Conv2d(3,  c1, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Conv2d(3, c1, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(c1),
             nn.ReLU(inplace=True),
             nn.Dropout2d(p=drop2d),
@@ -71,7 +87,6 @@ class RouterModel(nn.Module):
 
             nn.AdaptiveAvgPool2d((1, 1)),
         )
-
         self.dropout = nn.Dropout(p=drop)
         self.classifier = nn.Linear(c4, num_branches)
 
@@ -81,3 +96,23 @@ class RouterModel(nn.Module):
         x = self.dropout(x)
         return self.classifier(x)
 
+    @classmethod
+    def from_state_dict(cls, state):
+        model = cls(num_branches=state["classifier.weight"].shape[0])
+        model.load_state_dict(state)
+        return model
+
+
+def load_models(weights_dir):
+    """Load `router.pth` and one `branch_<i>.pth` per router output, ready for inference.
+
+    The files are plain state dicts. Every size is read from the weights themselves,
+    so retrained models with different branches load without any config change.
+    """
+    def load(name):
+        return torch.load(Path(weights_dir) / name, map_location="cpu", weights_only=True)
+
+    router = RouterModel.from_state_dict(load("router.pth"))
+    num_branches = router.classifier.out_features
+    branches = [SimpleCNN.from_state_dict(load(f"branch_{i}.pth")) for i in range(num_branches)]
+    return router.eval(), [branch.eval() for branch in branches]
